@@ -6,6 +6,7 @@
 //   tk_counter/admins.nut    — !tkc_reset whitelist
 //   tk_counter/announce.nut  — red notice template + layout
 
+IncludeScript( "tk_counter/version" )
 IncludeScript( "tk_counter/ranks" )
 IncludeScript( "tk_counter/admins" )
 IncludeScript( "tk_counter/announce" )
@@ -66,6 +67,7 @@ const TK_MSG_HELP_OFF        = "help_off"
 const TK_MSG_HELP_RESET      = "help_reset"
 const TK_MSG_HELP_HELP       = "help_help"
 const TK_MSG_HELP_AUTHOR     = "help_author"
+const TK_MSG_HELP_VERSION    = "help_version"
 const TK_MSG_SCORE_LINE      = "score_line"
 
 ::g_TkLangAliases <- {
@@ -174,6 +176,10 @@ const TK_MSG_SCORE_LINE      = "score_line"
     help_author = {
         ru = "Author: typical russian (https://steamcommunity.com/id/w_asd/)",
         en = "Author: typical russian (https://steamcommunity.com/id/w_asd/)",
+    },
+    help_version = {
+        ru = "Version: {version}",
+        en = "Version: {version}",
     },
     score_line = {
         ru = "{name}: {count} — {title}",
@@ -892,10 +898,18 @@ _TkPrintHelp <- function( hPlayer ) {
         TK_MSG_HELP_OFF,
         TK_MSG_HELP_RESET,
         TK_MSG_HELP_HELP,
+        TK_MSG_HELP_VERSION,
         TK_MSG_HELP_AUTHOR,
     ]
-    foreach ( id in ids )
-        TkChat( hPlayer, lang, id )
+    local ver = "0"
+    if ( "g_TkVersion" in getroottable() && ::g_TkVersion != null )
+        ver = ::g_TkVersion.tostring()
+    foreach ( id in ids ) {
+        if ( id == TK_MSG_HELP_VERSION )
+            TkChat( hPlayer, lang, id, { version = ver } )
+        else
+            TkChat( hPlayer, lang, id )
+    }
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────

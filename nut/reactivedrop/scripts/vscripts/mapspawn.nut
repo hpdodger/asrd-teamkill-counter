@@ -8,8 +8,10 @@ if ( "TkCounterLoaded" in getroottable() )
     return
 getroottable().TkCounterLoaded <- true
 
+IncludeScript( "tk_counter/version" )
+
 printl( "─────────────────────────────────────────" )
-printl( "  TK Counter  v1.2.3" )
+printl( "  TK Counter  v" + ::g_TkVersion )
 printl( "  Author: typical russian (https://steamcommunity.com/id/w_asd/)" );
 printl( "─────────────────────────────────────────" )
 

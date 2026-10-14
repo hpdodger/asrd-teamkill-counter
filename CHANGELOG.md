@@ -7,6 +7,10 @@
 
 ---
 
+## 1.2.4
+
+- В `!tkc_help` выводится версия; номер в одном файле `tk_counter/version.nut`.
+
 ## 1.2.3
 
 - В `!tkc_help` добавлена строка об авторе: typical russian (Steam).
