@@ -1,0 +1,1003 @@
+// TK Counter — core module (server-only).
+// IncludeScript( "tk_counter/tk_counter", worldspawn.GetScriptScope() )
+//
+// Data next to this file:
+//   tk_counter/ranks.nut     — breakpoints + titles
+//   tk_counter/admins.nut    — !tkc_reset whitelist
+//   tk_counter/announce.nut  — red notice template + layout
+
+IncludeScript( "tk_counter/ranks" )
+IncludeScript( "tk_counter/admins" )
+IncludeScript( "tk_counter/announce" )
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+const TK_DIR          = "tk_counter"
+const TK_INDEX_FILE   = "tk_counter/index.txt"
+const TK_TOP_N        = 10
+const TK_HUD_TALK     = 3
+const TK_TAG          = "[TKC] "
+const TK_CMD_PREFIX   = "!tkc"
+const TK_TEXT_Y       = "0.38"
+const TK_TEXT_COLOR   = "255 40 40 255"
+const TK_TEXT_HOLD    = "4"
+const TK_TIP_DELAY    = 3.0
+const TK_MAP_TIP_DELAY = 2.5
+const TK_CLASS_MARINE = "asw_marine"
+const TK_SEP          = "|"
+const TK_EM_DASH      = " — "
+
+const TK_LANG_RU = "ru"
+const TK_LANG_EN = "en"
+// ASRD Squirrel: const may only be a literal, not another const
+const TK_DEFAULT_LANG = "ru"
+
+const TK_CMD_HELP  = "!tkc_help"
+const TK_CMD_ME    = "!tkc"
+const TK_CMD_TOP   = "!tkc_top"
+const TK_CMD_NEXT  = "!tkc_next"
+const TK_CMD_LANG  = "!tkc_lang"
+const TK_CMD_ON    = "!tkc_on"
+const TK_CMD_OFF   = "!tkc_off"
+const TK_CMD_RESET = "!tkc_reset"
+
+// Message ids → translations[lang]
+const TK_MSG_NO_PERMISSION   = "no_permission"
+const TK_MSG_STEAM_UNAVAIL   = "steam_unavail"
+const TK_MSG_TOP_HEADER      = "top_header"
+const TK_MSG_TOP_EMPTY       = "top_empty"
+const TK_MSG_HELP_TIP        = "help_tip"
+const TK_MSG_RANK_UP         = "rank_up"
+const TK_MSG_NEXT_PROGRESS   = "next_progress"
+const TK_MSG_MAX_RANK        = "max_rank"
+const TK_MSG_LANG_STATUS     = "lang_status"
+const TK_MSG_LANG_SET        = "lang_set"
+const TK_MSG_NOTIFY_ON       = "notify_on"
+const TK_MSG_NOTIFY_OFF      = "notify_off"
+const TK_MSG_RESET_USAGE     = "reset_usage"
+const TK_MSG_RESET_BAD_ID    = "reset_bad_id"
+const TK_MSG_RESET_DONE      = "reset_done"
+const TK_MSG_HELP_ME         = "help_me"
+const TK_MSG_HELP_TOP        = "help_top"
+const TK_MSG_HELP_NEXT       = "help_next"
+const TK_MSG_HELP_LANG       = "help_lang"
+const TK_MSG_HELP_ON         = "help_on"
+const TK_MSG_HELP_OFF        = "help_off"
+const TK_MSG_HELP_RESET      = "help_reset"
+const TK_MSG_HELP_HELP       = "help_help"
+const TK_MSG_SCORE_LINE      = "score_line"
+
+::g_TkLangAliases <- {
+    ru = "ru",
+    rus = "ru",
+    russian = "ru",
+    ["рус"] = "ru",
+    en = "en",
+    eng = "en",
+    english = "en",
+}
+
+::g_TkStrings <- {
+    no_permission = {
+        ru = "Нет прав",
+        en = "no permission",
+    },
+    steam_unavail = {
+        ru = "SteamID недоступен.",
+        en = "SteamID unavailable.",
+    },
+    top_header = {
+        ru = "=== TK Top ===",
+        en = "=== TK Top ===",
+    },
+    top_empty = {
+        ru = "(пусто)",
+        en = "(empty)",
+    },
+    help_tip = {
+        ru = "team kill counter справка - !tkc_help",
+        en = "team kill counter help - !tkc_help",
+    },
+    rank_up = {
+        ru = "{name} получает звание «{title}» ({count} ТК)",
+        en = "{name} ranked up: «{title}» ({count} TK)",
+    },
+    next_progress = {
+        ru = "До «{title}»: ещё {need} (сейчас {count})",
+        en = "{need} more to «{title}» (now {count})",
+    },
+    max_rank = {
+        ru = "MAX — {line}",
+        en = "MAX — {line}",
+    },
+    lang_status = {
+        ru = "lang = {lang} (ru|en). Пример: !tkc_lang en",
+        en = "lang = {lang} (ru|en). Example: !tkc_lang en",
+    },
+    lang_set = {
+        ru = "lang → {lang}",
+        en = "lang → {lang}",
+    },
+    notify_on = {
+        ru = "Отображение тимкиллов включено",
+        en = "Teamkill display enabled",
+    },
+    notify_off = {
+        ru = "Отображение тимкиллов выключено",
+        en = "Teamkill display disabled",
+    },
+    reset_usage = {
+        ru = "Использование: !tkc_reset STEAM_1:0:12345",
+        en = "Usage: !tkc_reset STEAM_1:0:12345",
+    },
+    reset_bad_id = {
+        ru = "Нужен SteamID вида STEAM_1:0:12345",
+        en = "Need SteamID like STEAM_1:0:12345",
+    },
+    reset_done = {
+        ru = "Reset {name} [{steam}]: {before} → 0",
+        en = "Reset {name} [{steam}]: {before} → 0",
+    },
+    help_me = {
+        ru = "!tkc — твой счёт",
+        en = "!tkc — your score",
+    },
+    help_top = {
+        ru = "!tkc_top — таблица лидеров",
+        en = "!tkc_top — leaderboard",
+    },
+    help_next = {
+        ru = "!tkc_next — следующий ранг",
+        en = "!tkc_next — next rank",
+    },
+    help_lang = {
+        ru = "!tkc_lang ru|en — язык рангов",
+        en = "!tkc_lang ru|en — rank language",
+    },
+    help_on = {
+        ru = "!tkc_on — показать объявления тимкиллов",
+        en = "!tkc_on — show teamkill announcements",
+    },
+    help_off = {
+        ru = "!tkc_off — скрыть объявления тимкиллов",
+        en = "!tkc_off — hide teamkill announcements",
+    },
+    help_reset = {
+        ru = "!tkc_reset STEAM_1:0:12345 — сброс (админ)",
+        en = "!tkc_reset STEAM_1:0:12345 — reset (admin)",
+    },
+    help_help = {
+        ru = "!tkc_help — справка",
+        en = "!tkc_help — help",
+    },
+    score_line = {
+        ru = "{name}: {count} — {title}",
+        en = "{name}: {count} — {title}",
+    },
+}
+
+::g_TkCache <- {}
+PendingTips <- []
+bMapTipDone <- false
+fMapTipAt <- Time() + TK_MAP_TIP_DELAY
+
+// ── i18n ─────────────────────────────────────────────────────────────────────
+
+TkNormalizeLang <- function( lang ) {
+    if ( lang == null )
+        return TK_DEFAULT_LANG
+    local key = lang.tostring().tolower()
+    if ( key in ::g_TkLangAliases )
+        return ::g_TkLangAliases[key]
+    return TK_DEFAULT_LANG
+}
+
+_TkReplaceAll <- function( text, token, value ) {
+    if ( text == null )
+        return ""
+    text = text.tostring()
+    token = token.tostring()
+    value = ( value == null ) ? "" : value.tostring()
+    local out = text
+    local idx = out.find( token )
+    while ( idx != null ) {
+        out = out.slice( 0, idx ) + value + out.slice( idx + token.len() )
+        idx = out.find( token )
+    }
+    return out
+}
+
+TkFill <- function( template, vars ) {
+    local out = template.tostring()
+    foreach ( key, value in vars ) {
+        out = _TkReplaceAll( out, "${" + key + "}", value )
+        out = _TkReplaceAll( out, "{" + key + "}", value )
+    }
+    return out
+}
+
+TkT <- function( msgId, lang = TK_DEFAULT_LANG ) {
+    lang = TkNormalizeLang( lang )
+    if ( !( msgId in ::g_TkStrings ) )
+        return msgId.tostring()
+    local row = ::g_TkStrings[msgId]
+    if ( lang in row )
+        return row[lang]
+    if ( TK_DEFAULT_LANG in row )
+        return row[TK_DEFAULT_LANG]
+    foreach ( _lang, text in row )
+        return text
+    return msgId.tostring()
+}
+
+TkTF <- function( msgId, lang, vars ) {
+    return TkFill( TkT( msgId, lang ), vars )
+}
+
+TkChat <- function( hPlayerOrNull, lang, msgId, vars = null ) {
+    local text = ( vars == null ) ? TkT( msgId, lang ) : TkTF( msgId, lang, vars )
+    ClientPrint( hPlayerOrNull, TK_HUD_TALK, TK_TAG + text )
+}
+
+TkRankIndex <- function( count ) {
+    local idx = 0
+    foreach ( i, r in ::g_TkRanks ) {
+        if ( count >= r.min )
+            idx = i
+    }
+    return idx
+}
+
+TkRankTitle <- function( count, lang = TK_DEFAULT_LANG ) {
+    lang = TkNormalizeLang( lang )
+    local titles = ::g_TkRanks[TkRankIndex( count )].title
+    if ( lang in titles )
+        return titles[lang]
+    return titles[TK_DEFAULT_LANG]
+}
+
+TkRankTitleFromRow <- function( row, lang = TK_DEFAULT_LANG ) {
+    lang = TkNormalizeLang( lang )
+    if ( lang in row.title )
+        return row.title[lang]
+    return row.title[TK_DEFAULT_LANG]
+}
+
+TkNextRank <- function( count ) {
+    local idx = TkRankIndex( count )
+    if ( idx + 1 >= ::g_TkRanks.len() )
+        return null
+    return ::g_TkRanks[idx + 1]
+}
+
+TkFormatLine <- function( name, count, lang ) {
+    lang = TkNormalizeLang( lang )
+    local rank = TkRankTitle( count, lang )
+    local vars = {
+        nickname = name,
+        name = name,
+        killcount = count,
+        count = count,
+        rank = rank,
+        title = rank,
+    }
+
+    local tpl = null
+    if ( ( "g_TkAnnounce" in getroottable() ) && ( "template" in ::g_TkAnnounce ) ) {
+        local t = ::g_TkAnnounce.template
+        if ( lang in t )
+            tpl = t[lang]
+        else if ( TK_DEFAULT_LANG in t )
+            tpl = t[TK_DEFAULT_LANG]
+    }
+    if ( tpl == null || tpl == "" )
+        return TkTF( TK_MSG_SCORE_LINE, lang, { name = name, count = count, title = rank } )
+    return TkFill( tpl, vars )
+}
+
+TkAnnounceCfg <- function( key, fallback ) {
+    if ( !( "g_TkAnnounce" in getroottable() ) )
+        return fallback
+    if ( !( key in ::g_TkAnnounce ) )
+        return fallback
+    local v = ::g_TkAnnounce[key]
+    if ( v == null || v == "" )
+        return fallback
+    return v.tostring()
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+_TkSplitFirst <- function( str, sep ) {
+    local idx = str.find( sep )
+    if ( idx == null )
+        return [ str, "" ]
+    return [ str.slice( 0, idx ), str.slice( idx + sep.len() ) ]
+}
+
+_TkTrimCr <- function( line ) {
+    if ( line.len() > 0 && line.slice( line.len() - 1 ) == "\r" )
+        return line.slice( 0, line.len() - 1 )
+    return line
+}
+
+_TkSplitLines <- function( raw ) {
+    local result = []
+    local start = 0
+    local idx = raw.find( "\n", start )
+    while ( idx != null ) {
+        result.append( _TkTrimCr( raw.slice( start, idx ) ) )
+        start = idx + 1
+        idx = raw.find( "\n", start )
+    }
+    if ( start < raw.len() )
+        result.append( _TkTrimCr( raw.slice( start ) ) )
+    return result
+}
+
+_TkTrimSpaces <- function( s ) {
+    if ( s == null )
+        return ""
+    s = s.tostring()
+    while ( s.len() > 0 && s.slice( 0, 1 ) == " " )
+        s = s.slice( 1 )
+    while ( s.len() > 0 && s.slice( s.len() - 1 ) == " " )
+        s = s.slice( 0, s.len() - 1 )
+    return s
+}
+
+_TkSplitColons <- function( s ) {
+    local parts = []
+    local start = 0
+    local idx = s.find( ":", start )
+    while ( idx != null ) {
+        parts.append( s.slice( start, idx ) )
+        start = idx + 1
+        idx = s.find( ":", start )
+    }
+    parts.append( s.slice( start ) )
+    return parts
+}
+
+TkAccountIdFromString <- function( raw ) {
+    local s = _TkTrimSpaces( raw )
+    if ( s == null || s == "" )
+        return null
+
+    if ( s.len() >= 8 && s.slice( 0, 6 ) == "STEAM_" ) {
+        local parts = _TkSplitColons( s )
+        if ( parts.len() != 3 )
+            return null
+        try {
+            local y = parts[1].tointeger()
+            local z = parts[2].tointeger()
+            if ( y != 0 && y != 1 )
+                return null
+            if ( z < 0 )
+                return null
+            return z * 2 + y
+        } catch ( e ) {
+            return null
+        }
+    }
+
+    if ( s.len() >= 7 && s.slice( 0, 5 ) == "[U:1:" && s.slice( s.len() - 1 ) == "]" ) {
+        local inner = s.slice( 5, s.len() - 1 )
+        try {
+            local a = inner.tointeger()
+            if ( a < 0 )
+                return null
+            return a
+        } catch ( e ) {
+            return null
+        }
+    }
+
+    return null
+}
+
+TkSteamStringFromAccountId <- function( accountId ) {
+    local y = accountId % 2
+    local z = accountId / 2
+    return "STEAM_1:" + y.tostring() + ":" + z.tostring()
+}
+
+TkKey <- function( hPlayer ) {
+    if ( hPlayer == null || !hPlayer.IsValid() )
+        return null
+    local net = hPlayer.GetNetworkIDString()
+    if ( net == null || net == "" )
+        return null
+    if ( net == "BOT" || net == "STEAM_ID_LAN" || net == "STEAM_ID_PENDING" )
+        return null
+    local acc = TkAccountIdFromString( net )
+    if ( acc == null )
+        return null
+    return acc.tostring()
+}
+
+TkPlayerFile <- function( id ) {
+    return TK_DIR + "/" + id + ".txt"
+}
+
+TkIsAdmin <- function( hPlayer ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return false
+    foreach ( adminId in ::g_TkAdmins ) {
+        if ( adminId == null )
+            continue
+        local acc = TkAccountIdFromString( adminId.tostring() )
+        if ( acc != null && acc.tostring() == id )
+            return true
+    }
+    return false
+}
+
+// ── Persist ──────────────────────────────────────────────────────────────────
+
+TkLoadIndex <- function() {
+    local ids = []
+    local raw = FileToString( TK_INDEX_FILE )
+    if ( raw == null || raw == "" )
+        return ids
+    foreach ( line in _TkSplitLines( raw ) ) {
+        if ( line.len() == 0 )
+            continue
+        ids.append( line )
+    }
+    return ids
+}
+
+TkSaveIndex <- function( ids ) {
+    local out = ""
+    foreach ( id in ids )
+        out += id + "\n"
+    StringToFile( TK_INDEX_FILE, out )
+}
+
+TkEnsureInIndex <- function( id ) {
+    local ids = TkLoadIndex()
+    foreach ( existing in ids ) {
+        if ( existing == id )
+            return
+    }
+    ids.append( id )
+    TkSaveIndex( ids )
+}
+
+TkParseNotify <- function( raw ) {
+    if ( raw == null )
+        return true
+    raw = raw.tostring().tolower()
+    if ( raw == "0" || raw == "off" || raw == "false" || raw == "no" )
+        return false
+    return true
+}
+
+// File format: count|name|lang|notify(0|1)
+TkLoad <- function( id ) {
+    if ( id in ::g_TkCache )
+        return ::g_TkCache[id]
+
+    local rec = {
+        count = 0,
+        name = "?",
+        lang = TK_DEFAULT_LANG,
+        notify = true,
+        steam = TkSteamStringFromAccountId( id.tointeger() ),
+    }
+    local raw = FileToString( TkPlayerFile( id ) )
+    if ( raw != null && raw != "" ) {
+        local line = _TkTrimCr( raw )
+        local p1 = _TkSplitFirst( line, TK_SEP )
+        try {
+            rec.count = p1[0].tointeger()
+        } catch ( e ) {
+            rec.count = 0
+        }
+        if ( rec.count < 0 )
+            rec.count = 0
+        local rest = p1[1]
+        if ( rest != null && rest != "" ) {
+            local p2 = _TkSplitFirst( rest, TK_SEP )
+            if ( p2[0] != null && p2[0] != "" )
+                rec.name = p2[0]
+            local rest2 = p2[1]
+            if ( rest2 != null && rest2 != "" ) {
+                local p3 = _TkSplitFirst( rest2, TK_SEP )
+                if ( p3[0] != null && p3[0] != "" )
+                    rec.lang = TkNormalizeLang( p3[0] )
+                if ( p3[1] != null && p3[1] != "" )
+                    rec.notify = TkParseNotify( p3[1] )
+            }
+        }
+    }
+
+    ::g_TkCache[id] <- rec
+    return rec
+}
+
+_TkSanitizeName <- function( name ) {
+    if ( name == null || name == "" )
+        return "?"
+    name = name.tostring()
+    local out = ""
+    for ( local i = 0; i < name.len(); i++ ) {
+        local ch = name.slice( i, i + 1 )
+        if ( ch == TK_SEP )
+            out += "/"
+        else if ( ch == "\n" || ch == "\r" )
+            out += " "
+        else
+            out += ch
+    }
+    return out
+}
+
+TkSave <- function( id ) {
+    if ( !( id in ::g_TkCache ) )
+        return
+    local rec = ::g_TkCache[id]
+    local name = _TkSanitizeName( rec.name )
+    local lang = TkNormalizeLang( rec.lang )
+    local notify = true
+    if ( "notify" in rec )
+        notify = rec.notify
+    rec.lang = lang
+    rec.notify = notify
+    local notifyStr = notify ? "1" : "0"
+    StringToFile( TkPlayerFile( id ), rec.count.tostring() + TK_SEP + name + TK_SEP + lang + TK_SEP + notifyStr )
+    TkEnsureInIndex( id )
+}
+
+TkIsNotifyOn <- function( hPlayer ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return true
+    local rec = TkLoad( id )
+    if ( !( "notify" in rec ) )
+        return true
+    return rec.notify
+}
+
+TkSetNotify <- function( hPlayer, enabled ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return null
+    local rec = TkLoad( id )
+    rec.notify = enabled
+    rec.name = hPlayer.GetPlayerName()
+    rec.steam = hPlayer.GetNetworkIDString()
+    ::g_TkCache[id] <- rec
+    TkSave( id )
+    return rec.notify
+}
+
+// Broadcast center+chat only to players who left notify on.
+TkBroadcastAnnounce <- function( centerMsg, chatMsg ) {
+    local p = Entities.FindByClassname( null, "player" )
+    while ( p != null ) {
+        if ( p.IsValid() && TkIsNotifyOn( p ) ) {
+            if ( centerMsg != null && centerMsg != "" )
+                TkShowCenter( centerMsg, p )
+            if ( chatMsg != null && chatMsg != "" )
+                ClientPrint( p, TK_HUD_TALK, chatMsg )
+        }
+        p = Entities.FindByClassname( p, "player" )
+    }
+}
+
+TkLangOf <- function( hPlayer ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return TK_DEFAULT_LANG
+    return TkNormalizeLang( TkLoad( id ).lang )
+}
+
+TkSetLang <- function( hPlayer, lang ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return null
+    local rec = TkLoad( id )
+    rec.lang = TkNormalizeLang( lang )
+    rec.name = hPlayer.GetPlayerName()
+    rec.steam = hPlayer.GetNetworkIDString()
+    ::g_TkCache[id] <- rec
+    TkSave( id )
+    return rec.lang
+}
+
+TkTouchPlayer <- function( hPlayer ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return null
+    local rec = TkLoad( id )
+    rec.name = hPlayer.GetPlayerName()
+    rec.steam = hPlayer.GetNetworkIDString()
+    rec.lang = TkNormalizeLang( rec.lang )
+    if ( !( "notify" in rec ) )
+        rec.notify = true
+    ::g_TkCache[id] <- rec
+    TkSave( id )
+    return rec
+}
+
+TkAdd <- function( hPlayer, n = 1 ) {
+    local id = TkKey( hPlayer )
+    if ( id == null )
+        return null
+    local before = TkLoad( id ).count
+    local rec = TkLoad( id )
+    rec.count = before + n
+    rec.name = hPlayer.GetPlayerName()
+    rec.steam = hPlayer.GetNetworkIDString()
+    rec.lang = TkNormalizeLang( rec.lang )
+    if ( !( "notify" in rec ) )
+        rec.notify = true
+    ::g_TkCache[id] <- rec
+    TkSave( id )
+    return { id = id, before = before, after = rec.count, name = rec.name, steam = rec.steam, lang = rec.lang }
+}
+
+TkResetBySteamString <- function( steamStr ) {
+    local acc = TkAccountIdFromString( steamStr )
+    if ( acc == null )
+        return null
+    local id = acc.tostring()
+    local rec = TkLoad( id )
+    local oldCount = rec.count
+    local oldName = rec.name
+    local steam = TkSteamStringFromAccountId( acc )
+    if ( "steam" in rec && rec.steam != null && rec.steam != "" )
+        steam = rec.steam
+    rec.count = 0
+    ::g_TkCache[id] <- rec
+    TkSave( id )
+    return { id = id, name = oldName, before = oldCount, steam = steam }
+}
+
+TkCollectAll <- function() {
+    local list = []
+    foreach ( id in TkLoadIndex() ) {
+        local rec = TkLoad( id )
+        local steam = TkSteamStringFromAccountId( id.tointeger() )
+        if ( "steam" in rec && rec.steam != null && rec.steam != "" )
+            steam = rec.steam
+        list.append( {
+            id = id,
+            count = rec.count,
+            name = rec.name,
+            steam = steam,
+            lang = TkNormalizeLang( rec.lang ),
+        } )
+    }
+    local n = list.len()
+    for ( local i = 0; i < n; i++ ) {
+        for ( local j = 0; j < n - 1 - i; j++ ) {
+            if ( list[j].count < list[j + 1].count ) {
+                local tmp = list[j]
+                list[j] = list[j + 1]
+                list[j + 1] = tmp
+            }
+        }
+    }
+    return list
+}
+
+// ── UI ───────────────────────────────────────────────────────────────────────
+
+TkShowCenter <- function( message, hPlayer = null ) {
+    if ( message == null || message == "" )
+        return
+
+    local t = Entities.CreateByClassname( "game_text" )
+    if ( t == null )
+        return
+
+    t.__KeyValueFromString( "message", message.tostring() )
+    t.__KeyValueFromString( "x", TkAnnounceCfg( "x", "-1" ) )
+    t.__KeyValueFromString( "y", TkAnnounceCfg( "y", TK_TEXT_Y ) )
+    t.__KeyValueFromString( "color", TkAnnounceCfg( "color", TK_TEXT_COLOR ) )
+    t.__KeyValueFromString( "color2", TkAnnounceCfg( "color2", TkAnnounceCfg( "color", TK_TEXT_COLOR ) ) )
+    t.__KeyValueFromString( "holdtime", TkAnnounceCfg( "holdtime", TK_TEXT_HOLD ) )
+    t.__KeyValueFromString( "fadein", TkAnnounceCfg( "fadein", "0.15" ) )
+    t.__KeyValueFromString( "fadeout", TkAnnounceCfg( "fadeout", "0.35" ) )
+    t.__KeyValueFromString( "channel", TkAnnounceCfg( "channel", "3" ) )
+    t.__KeyValueFromString( "effect", TkAnnounceCfg( "effect", "0" ) )
+
+    if ( hPlayer != null && hPlayer.IsValid() ) {
+        t.__KeyValueFromString( "spawnflags", "0" )
+        t.SetOwner( hPlayer )
+        t.Spawn()
+        t.Activate()
+        EntFireByHandle( t, "Display", "", 0.0, hPlayer, hPlayer )
+    } else {
+        t.__KeyValueFromString( "spawnflags", "1" )
+        t.Spawn()
+        t.Activate()
+        EntFireByHandle( t, "Display", "", 0.0, null, null )
+    }
+
+    EntFireByHandle( t, "Kill", "", 5.0, null, null )
+}
+
+TkAnnounceKill <- function( hKiller, after, lang ) {
+    local msg = TkFormatLine( hKiller.GetPlayerName(), after, lang )
+    TkBroadcastAnnounce( msg, TK_TAG + msg )
+}
+
+TkAnnounceRankUp <- function( hKiller, after, lang ) {
+    local name = hKiller.GetPlayerName()
+    local title = TkRankTitle( after, lang )
+    local msg = TkFormatLine( name, after, lang )
+    local chat = TK_TAG + TkTF( TK_MSG_RANK_UP, lang, {
+        name = name,
+        title = title,
+        count = after,
+    } )
+    TkBroadcastAnnounce( msg, chat )
+}
+
+TkSendHelpTip <- function( hPlayer ) {
+    if ( hPlayer == null || !hPlayer.IsValid() )
+        return
+    if ( !TkIsNotifyOn( hPlayer ) )
+        return
+    TkChat( hPlayer, TkLangOf( hPlayer ), TK_MSG_HELP_TIP )
+}
+
+TkMapStartTip <- function() {
+    local p = Entities.FindByClassname( null, "player" )
+    while ( p != null ) {
+        if ( p.IsValid() && TkIsNotifyOn( p ) )
+            TkChat( p, TkLangOf( p ), TK_MSG_HELP_TIP )
+        p = Entities.FindByClassname( p, "player" )
+    }
+}
+
+TkTipThink <- function() {
+    local now = Time()
+
+    if ( !bMapTipDone && now >= fMapTipAt ) {
+        bMapTipDone = true
+        if ( Entities.FindByClassname( null, "player" ) != null )
+            TkMapStartTip()
+    }
+
+    if ( PendingTips.len() > 0 ) {
+        local remaining = []
+        foreach ( entry in PendingTips ) {
+            if ( now >= entry.showAt ) {
+                if ( entry.hPlayer != null && entry.hPlayer.IsValid() )
+                    TkSendHelpTip( entry.hPlayer )
+            } else {
+                remaining.append( entry )
+            }
+        }
+        PendingTips = remaining
+    }
+
+    return 0.5
+}
+
+_TkPrintHelp <- function( hPlayer ) {
+    local lang = TkLangOf( hPlayer )
+    local ids = [
+        TK_MSG_HELP_ME,
+        TK_MSG_HELP_TOP,
+        TK_MSG_HELP_NEXT,
+        TK_MSG_HELP_LANG,
+        TK_MSG_HELP_ON,
+        TK_MSG_HELP_OFF,
+        TK_MSG_HELP_RESET,
+        TK_MSG_HELP_HELP,
+    ]
+    foreach ( id in ids )
+        TkChat( hPlayer, lang, id )
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+_OnEntityKilled <- function( params ) {
+    if ( !( "entindex_killed" in params ) )
+        return
+    if ( !( "entindex_attacker" in params ) )
+        return
+
+    local victim = EntIndexToHScript( params["entindex_killed"] )
+    local attacker = EntIndexToHScript( params["entindex_attacker"] )
+    if ( victim == null || attacker == null )
+        return
+    if ( !victim.IsValid() || !attacker.IsValid() )
+        return
+    if ( victim.GetClassname() != TK_CLASS_MARINE )
+        return
+    if ( attacker.GetClassname() != TK_CLASS_MARINE )
+        return
+    if ( attacker == victim )
+        return
+    if ( !attacker.IsInhabited() )
+        return
+
+    local hKiller = attacker.GetCommander()
+    if ( hKiller == null || !hKiller.IsValid() )
+        return
+
+    local result = TkAdd( hKiller, 1 )
+    if ( result == null )
+        return
+
+    TkAnnounceKill( hKiller, result.after, result.lang )
+    if ( TkRankIndex( result.after ) > TkRankIndex( result.before ) )
+        TkAnnounceRankUp( hKiller, result.after, result.lang )
+}
+
+_OnPlayerActivate <- function( hPlayer ) {
+    if ( hPlayer == null || !hPlayer.IsValid() )
+        return
+    TkTouchPlayer( hPlayer )
+    PendingTips.append( { hPlayer = hPlayer, showAt = Time() + TK_TIP_DELAY } )
+}
+
+_OnPlayerSay <- function( params ) {
+    if ( !( "text" in params ) || !( "userid" in params ) )
+        return
+
+    local text = params["text"]
+    if ( text == null )
+        return
+    text = text.tostring()
+    if ( text.len() > 0 && text.slice( 0, 1 ) == "/" )
+        text = "!" + text.slice( 1 )
+
+    if ( text.len() < TK_CMD_PREFIX.len() )
+        return
+    if ( text.slice( 0, TK_CMD_PREFIX.len() ) != TK_CMD_PREFIX )
+        return
+    if ( text.len() > TK_CMD_PREFIX.len() ) {
+        local nextCh = text.slice( TK_CMD_PREFIX.len(), TK_CMD_PREFIX.len() + 1 )
+        if ( nextCh != "_" && nextCh != " " )
+            return
+    }
+
+    local hPlayer = GetPlayerFromUserID( params["userid"] )
+    if ( hPlayer == null || !hPlayer.IsValid() )
+        return
+
+    local lang = TkLangOf( hPlayer )
+    local cmd = text
+    local arg = ""
+    local sp = text.find( " " )
+    if ( sp != null ) {
+        cmd = text.slice( 0, sp )
+        arg = _TkTrimSpaces( text.slice( sp + 1 ) )
+    }
+
+    if ( cmd == TK_CMD_HELP ) {
+        _TkPrintHelp( hPlayer )
+        return
+    }
+
+    if ( cmd == TK_CMD_ME ) {
+        local rec = TkTouchPlayer( hPlayer )
+        if ( rec == null ) {
+            TkChat( hPlayer, lang, TK_MSG_STEAM_UNAVAIL )
+            return
+        }
+        local msg = TkFormatLine( rec.name, rec.count, rec.lang )
+        ClientPrint( hPlayer, TK_HUD_TALK, TK_TAG + msg + " [" + hPlayer.GetNetworkIDString() + "]" )
+        TkShowCenter( msg, hPlayer )
+        return
+    }
+
+    if ( cmd == TK_CMD_TOP ) {
+        local viewerLang = TkLangOf( hPlayer )
+        local list = TkCollectAll()
+        TkChat( hPlayer, viewerLang, TK_MSG_TOP_HEADER )
+        if ( list.len() == 0 ) {
+            TkChat( hPlayer, viewerLang, TK_MSG_TOP_EMPTY )
+            return
+        }
+        local limit = list.len()
+        if ( limit > TK_TOP_N )
+            limit = TK_TOP_N
+        for ( local i = 0; i < limit; i++ ) {
+            local e = list[i]
+            local line = ( i + 1 ).tostring() + ". " + TkFormatLine( e.name, e.count, viewerLang )
+            ClientPrint( hPlayer, TK_HUD_TALK, TK_TAG + line )
+        }
+        return
+    }
+
+    if ( cmd == TK_CMD_NEXT ) {
+        local rec = TkTouchPlayer( hPlayer )
+        if ( rec == null ) {
+            TkChat( hPlayer, lang, TK_MSG_STEAM_UNAVAIL )
+            return
+        }
+        local next = TkNextRank( rec.count )
+        if ( next == null ) {
+            local line = TkFormatLine( rec.name, rec.count, rec.lang )
+            TkChat( hPlayer, rec.lang, TK_MSG_MAX_RANK, { line = line } )
+            TkShowCenter( line, hPlayer )
+            return
+        }
+        local need = next.min - rec.count
+        local nextTitle = TkRankTitleFromRow( next, rec.lang )
+        TkChat( hPlayer, rec.lang, TK_MSG_NEXT_PROGRESS, {
+            title = nextTitle,
+            need = need,
+            count = rec.count,
+        } )
+        TkShowCenter( rec.name + ": " + rec.count + " → " + nextTitle + " (" + need + ")", hPlayer )
+        return
+    }
+
+    if ( cmd == TK_CMD_LANG ) {
+        if ( arg == "" ) {
+            TkChat( hPlayer, lang, TK_MSG_LANG_STATUS, { lang = lang } )
+            return
+        }
+        local set = TkSetLang( hPlayer, arg )
+        if ( set == null ) {
+            TkChat( hPlayer, lang, TK_MSG_STEAM_UNAVAIL )
+            return
+        }
+        local rec = TkTouchPlayer( hPlayer )
+        local demo = TkFormatLine( rec.name, rec.count, set )
+        TkChat( hPlayer, set, TK_MSG_LANG_SET, { lang = set } )
+        ClientPrint( hPlayer, TK_HUD_TALK, TK_TAG + demo )
+        TkShowCenter( demo, hPlayer )
+        return
+    }
+
+    if ( cmd == TK_CMD_ON ) {
+        if ( TkSetNotify( hPlayer, true ) == null ) {
+            TkChat( hPlayer, lang, TK_MSG_STEAM_UNAVAIL )
+            return
+        }
+        TkChat( hPlayer, lang, TK_MSG_NOTIFY_ON )
+        return
+    }
+
+    if ( cmd == TK_CMD_OFF ) {
+        if ( TkSetNotify( hPlayer, false ) == null ) {
+            TkChat( hPlayer, lang, TK_MSG_STEAM_UNAVAIL )
+            return
+        }
+        TkChat( hPlayer, lang, TK_MSG_NOTIFY_OFF )
+        return
+    }
+
+    if ( cmd == TK_CMD_RESET ) {
+        if ( !TkIsAdmin( hPlayer ) ) {
+            TkChat( hPlayer, lang, TK_MSG_NO_PERMISSION )
+            return
+        }
+        if ( arg == "" ) {
+            TkChat( hPlayer, lang, TK_MSG_RESET_USAGE )
+            return
+        }
+        local result = TkResetBySteamString( arg )
+        if ( result == null ) {
+            TkChat( hPlayer, lang, TK_MSG_RESET_BAD_ID )
+            return
+        }
+        TkChat( hPlayer, lang, TK_MSG_RESET_DONE, {
+            name = result.name,
+            steam = result.steam,
+            before = result.before,
+        } )
+        TkShowCenter( result.name + ": 0", hPlayer )
+        return
+    }
+
+    if ( cmd.slice( 0, TK_CMD_PREFIX.len() ) == TK_CMD_PREFIX )
+        _TkPrintHelp( hPlayer )
+}
+
+local hTipWorld = Entities.FindByClassname( null, "worldspawn" )
+if ( hTipWorld != null )
+    AddThinkToEnt( hTipWorld, "TkTipThink" )
+printl( "[TK Counter] module loaded" )

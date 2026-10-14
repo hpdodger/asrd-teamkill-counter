@@ -1,0 +1,7 @@
+"CHALLENGE" {
+	"name"	"TK Counter (optional)"
+	"description"	"Server-side teamkill ranks. Prefer mapspawn (sv_mapspawn_nut_exec 1) so it works with any selected challenge. This challenge entry is optional."
+
+	"convars" {
+	}
+}
