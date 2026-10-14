@@ -574,13 +574,97 @@ TkSetNotify <- function( hPlayer, enabled ) {
     return rec.notify
 }
 
+TkAnnounceStackSlots <- function() {
+    local n = 4
+    try {
+        n = TkAnnounceCfg( "stack_slots", "4" ).tointeger()
+    } catch ( e ) {
+        n = 4
+    }
+    if ( n < 1 )
+        n = 1
+    if ( n > 6 )
+        n = 6
+    return n
+}
+
+TkAnnounceChannelBase <- function() {
+    local n = 1
+    try {
+        n = TkAnnounceCfg( "channel_base", "1" ).tointeger()
+    } catch ( e ) {
+        n = 1
+    }
+    if ( n < 0 )
+        n = 0
+    return n
+}
+
+TkAnnounceYStep <- function() {
+    local s = TkAnnounceCfg( "y_step", "0.055" )
+    try {
+        return s.tofloat()
+    } catch ( e ) {
+        return 0.055
+    }
+}
+
+TkAnnounceHoldSeconds <- function() {
+    local s = TkAnnounceCfg( "holdtime", TK_TEXT_HOLD )
+    local fade = TkAnnounceCfg( "fadeout", "0.35" )
+    local hold = 4.0
+    local fo = 0.35
+    try { hold = s.tofloat() } catch ( e ) { hold = 4.0 }
+    try { fo = fade.tofloat() } catch ( e ) { fo = 0.35 }
+    return hold + fo + 0.05
+}
+
+// Pick a free stack slot (different y + channel). Reuses oldest if all busy.
+TkAllocAnnounceSlot <- function() {
+    local slots = TkAnnounceStackSlots()
+    local now = Time()
+    local i = 0
+    for ( i = 0; i < slots; i++ ) {
+        if ( ::g_TkAnnounceSlotFreeAt[i] <= now ) {
+            ::g_TkAnnounceSlotFreeAt[i] = now + TkAnnounceHoldSeconds()
+            return i
+        }
+    }
+    local best = 0
+    local bestAt = ::g_TkAnnounceSlotFreeAt[0]
+    for ( i = 1; i < slots; i++ ) {
+        if ( ::g_TkAnnounceSlotFreeAt[i] < bestAt ) {
+            bestAt = ::g_TkAnnounceSlotFreeAt[i]
+            best = i
+        }
+    }
+    ::g_TkAnnounceSlotFreeAt[best] = now + TkAnnounceHoldSeconds()
+    return best
+}
+
+TkAnnounceSlotY <- function( slot ) {
+    local baseStr = TkAnnounceCfg( "y", TK_TEXT_Y )
+    local base = 0.32
+    try { base = baseStr.tofloat() } catch ( e ) { base = 0.32 }
+    return ( base + ( slot * TkAnnounceYStep() ) ).tostring()
+}
+
+TkAnnounceSlotChannel <- function( slot ) {
+    return ( TkAnnounceChannelBase() + slot ).tostring()
+}
+
 // Broadcast center+chat only to players who left notify on.
+// One stack slot per announcement (shared by all viewers).
 TkBroadcastAnnounce <- function( centerMsg, chatMsg ) {
+    local slot = null
+    if ( centerMsg != null && centerMsg != "" )
+        slot = TkAllocAnnounceSlot()
+
     local p = Entities.FindByClassname( null, "player" )
     while ( p != null ) {
         if ( p.IsValid() && TkIsNotifyOn( p ) ) {
             if ( centerMsg != null && centerMsg != "" )
-                TkShowCenter( centerMsg, p )
+                TkShowCenter( centerMsg, p, slot )
             if ( chatMsg != null && chatMsg != "" )
                 ClientPrint( p, TK_HUD_TALK, chatMsg )
         }
@@ -687,23 +771,34 @@ TkCollectAll <- function() {
 
 // ── UI ───────────────────────────────────────────────────────────────────────
 
-TkShowCenter <- function( message, hPlayer = null ) {
+TkShowCenter <- function( message, hPlayer = null, slot = null ) {
     if ( message == null || message == "" )
         return
+
+    if ( slot == null )
+        slot = TkAllocAnnounceSlot()
 
     local t = Entities.CreateByClassname( "game_text" )
     if ( t == null )
         return
 
+    local hold = TkAnnounceCfg( "holdtime", TK_TEXT_HOLD )
+    local killDelay = 5.0
+    try {
+        killDelay = hold.tofloat() + TkAnnounceCfg( "fadeout", "0.35" ).tofloat() + 0.5
+    } catch ( e ) {
+        killDelay = 5.0
+    }
+
     t.__KeyValueFromString( "message", message.tostring() )
     t.__KeyValueFromString( "x", TkAnnounceCfg( "x", "-1" ) )
-    t.__KeyValueFromString( "y", TkAnnounceCfg( "y", TK_TEXT_Y ) )
+    t.__KeyValueFromString( "y", TkAnnounceSlotY( slot ) )
     t.__KeyValueFromString( "color", TkAnnounceCfg( "color", TK_TEXT_COLOR ) )
     t.__KeyValueFromString( "color2", TkAnnounceCfg( "color2", TkAnnounceCfg( "color", TK_TEXT_COLOR ) ) )
-    t.__KeyValueFromString( "holdtime", TkAnnounceCfg( "holdtime", TK_TEXT_HOLD ) )
+    t.__KeyValueFromString( "holdtime", hold )
     t.__KeyValueFromString( "fadein", TkAnnounceCfg( "fadein", "0.15" ) )
     t.__KeyValueFromString( "fadeout", TkAnnounceCfg( "fadeout", "0.35" ) )
-    t.__KeyValueFromString( "channel", TkAnnounceCfg( "channel", "3" ) )
+    t.__KeyValueFromString( "channel", TkAnnounceSlotChannel( slot ) )
     t.__KeyValueFromString( "effect", TkAnnounceCfg( "effect", "0" ) )
 
     if ( hPlayer != null && hPlayer.IsValid() ) {
@@ -719,7 +814,7 @@ TkShowCenter <- function( message, hPlayer = null ) {
         EntFireByHandle( t, "Display", "", 0.0, null, null )
     }
 
-    EntFireByHandle( t, "Kill", "", 5.0, null, null )
+    EntFireByHandle( t, "Kill", "", killDelay, null, null )
 }
 
 TkAnnounceKill <- function( hKiller, after, lang ) {

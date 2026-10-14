@@ -9,7 +9,7 @@ if ( "TkCounterLoaded" in getroottable() )
 getroottable().TkCounterLoaded <- true
 
 printl( "─────────────────────────────────────────" )
-printl( "  TK Counter  v1.2.1 by typical russian" )
+printl( "  TK Counter  v1.2.2 by typical russian" )
 printl( "  Author: https://steamcommunity.com/id/w_asd/" );
 printl( "─────────────────────────────────────────" )
 
