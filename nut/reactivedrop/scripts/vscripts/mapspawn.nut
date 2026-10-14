@@ -9,8 +9,8 @@ if ( "TkCounterLoaded" in getroottable() )
 getroottable().TkCounterLoaded <- true
 
 printl( "─────────────────────────────────────────" )
-printl( "  TK Counter  v1.2.2 by typical russian" )
-printl( "  Author: https://steamcommunity.com/id/w_asd/" );
+printl( "  TK Counter  v1.2.3" )
+printl( "  Author: typical russian (https://steamcommunity.com/id/w_asd/)" );
 printl( "─────────────────────────────────────────" )
 
 hWorldTk <- Entities.FindByClassname( null, "worldspawn" )

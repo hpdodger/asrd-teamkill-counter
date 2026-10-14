@@ -7,6 +7,10 @@
 
 ---
 
+## 1.2.3
+
+- В `!tkc_help` добавлена строка об авторе: typical russian (Steam).
+
 ## 1.2.2
 
 - Одновременные тимкиллы: стек до N красных строк (разный `y` + разные `channel`), настраивается в `announce.nut` (`stack_slots`, `y_step`, `channel_base`).
