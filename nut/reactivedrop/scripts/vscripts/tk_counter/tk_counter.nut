@@ -37,6 +37,7 @@ const TK_CMD_HELP  = "!tkc_help"
 const TK_CMD_ME    = "!tkc"
 const TK_CMD_TOP   = "!tkc_top"
 const TK_CMD_NEXT  = "!tkc_next"
+const TK_CMD_RANKS = "!tkc_ranks"
 const TK_CMD_LANG  = "!tkc_lang"
 const TK_CMD_ON    = "!tkc_on"
 const TK_CMD_OFF   = "!tkc_off"
@@ -61,6 +62,7 @@ const TK_MSG_RESET_DONE      = "reset_done"
 const TK_MSG_HELP_ME         = "help_me"
 const TK_MSG_HELP_TOP        = "help_top"
 const TK_MSG_HELP_NEXT       = "help_next"
+const TK_MSG_HELP_RANKS      = "help_ranks"
 const TK_MSG_HELP_LANG       = "help_lang"
 const TK_MSG_HELP_ON         = "help_on"
 const TK_MSG_HELP_OFF        = "help_off"
@@ -68,6 +70,8 @@ const TK_MSG_HELP_RESET      = "help_reset"
 const TK_MSG_HELP_HELP       = "help_help"
 const TK_MSG_HELP_AUTHOR     = "help_author"
 const TK_MSG_HELP_VERSION    = "help_version"
+const TK_MSG_RANKS_HEADER    = "ranks_header"
+const TK_MSG_RANK_ROW        = "rank_row"
 const TK_MSG_SCORE_LINE      = "score_line"
 
 ::g_TkLangAliases <- {
@@ -152,6 +156,18 @@ const TK_MSG_SCORE_LINE      = "score_line"
     help_next = {
         ru = "!tkc_next — следующий ранг",
         en = "!tkc_next — next rank",
+    },
+    help_ranks = {
+        ru = "!tkc_ranks — список рангов и порогов",
+        en = "!tkc_ranks — ranks and breakpoints",
+    },
+    ranks_header = {
+        ru = "=== Ранги (ТК → звание) ===",
+        en = "=== Ranks (TK → title) ===",
+    },
+    rank_row = {
+        ru = "{min} — {title}",
+        en = "{min} — {title}",
     },
     help_lang = {
         ru = "!tkc_lang ru|en — язык рангов",
@@ -893,6 +909,7 @@ _TkPrintHelp <- function( hPlayer ) {
         TK_MSG_HELP_ME,
         TK_MSG_HELP_TOP,
         TK_MSG_HELP_NEXT,
+        TK_MSG_HELP_RANKS,
         TK_MSG_HELP_LANG,
         TK_MSG_HELP_ON,
         TK_MSG_HELP_OFF,
@@ -1046,6 +1063,19 @@ _OnPlayerSay <- function( params ) {
             count = rec.count,
         } )
         TkShowCenter( rec.name + ": " + rec.count + " → " + nextTitle + " (" + need + ")", hPlayer )
+        return
+    }
+
+    if ( cmd == TK_CMD_RANKS ) {
+        local viewerLang = TkLangOf( hPlayer )
+        TkChat( hPlayer, viewerLang, TK_MSG_RANKS_HEADER )
+        foreach ( r in ::g_TkRanks ) {
+            local title = TkRankTitleFromRow( r, viewerLang )
+            TkChat( hPlayer, viewerLang, TK_MSG_RANK_ROW, {
+                min = r.min,
+                title = title,
+            } )
+        }
         return
     }
 
