@@ -6,6 +6,11 @@ if ( !( "TkCounterLoaded" in getroottable() ) ) {
 
     printl( "[TK Counter] merging into mapspawn" )
 
+    printl( "─────────────────────────────────────────" )
+    printl( "  TK Counter  v1.2.3" )
+    printl( "  Author: typical russian (https://steamcommunity.com/id/w_asd/)" );
+    printl( "─────────────────────────────────────────" )
+
     hWorldTk <- Entities.FindByClassname( null, "worldspawn" )
     hWorldTk.ValidateScriptScope()
     IncludeScript( "tk_counter/tk_counter", hWorldTk.GetScriptScope() )
