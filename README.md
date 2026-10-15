@@ -111,7 +111,7 @@ resource/challenges/tk_counter.txt
 
 ### Админы для сброса
 
-VScript **не видит** админов SourceMod. SteamID в привычном виде (как в `status` / `admins_simple.ini`):
+SteamID в привычном виде (как в `status` / `admins_simple.ini`):
 
 ```squirrel
 ::g_TkAdmins <- [
