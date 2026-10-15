@@ -940,9 +940,10 @@ TkShowCenter <- function( message, hPlayer = null, slot = null, displayDelay = 0
 }
 
 TkAnnounceKill <- function( hKiller, after, lang ) {
-    // Bake string NOW — before any later kill in the same frame changes totals
+    // Bake string NOW — before any later kill in the same frame changes totals.
+    // Kill announce is red HUD only — no chat spam (rank-up still uses chat).
     local msg = TkFormatLine( hKiller.GetPlayerName(), after, lang, "kill" )
-    TkQueueAnnounce( msg, TK_TAG + msg )
+    TkQueueAnnounce( msg, null )
 }
 
 TkAnnounceRankUp <- function( hKiller, after, lang ) {

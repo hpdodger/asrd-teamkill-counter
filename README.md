@@ -2,7 +2,7 @@
 
 Server-side teamkill counter with ranks, on-disk persistence, and a chat leaderboard.
 
-**Version:** `tk_counter/version.nut` (currently **1.3.0**), also shown in the `mapspawn` banner and `!tkc_help`. History: [`CHANGELOG.md`](CHANGELOG.md).
+**Version:** `tk_counter/version.nut` (currently **1.3.1**), also shown in the `mapspawn` banner and `!tkc_help`. History: [`CHANGELOG.md`](CHANGELOG.md).
 
 No client files required: announcements use `ClientPrint` / `game_text`.
 
@@ -166,7 +166,11 @@ Prefix: `!tkc`.
 
 `!tkc_off` only hides auto-announcements. On-demand commands and counting still work.
 
-Command replies are **only** visible to the requester. Auto-announcements go to players with `!tkc_on`. Chat commands do not show red center text.
+Command replies are **only** visible to the requester. Chat commands do not show red center text.
+
+Auto-announcements (players with `!tkc_on`):
+- teamkill — red HUD only (no chat line);
+- rank-up — red HUD and a chat line.
 
 ## Data files
 
