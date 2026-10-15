@@ -1,24 +1,42 @@
 // TK Counter — red on-screen announcement (game_text) layout.
 //
-// Placeholders in template (both ${...} and {...} work):
-//   ${nickname}  / ${name}       — player name
-//   ${killcount} / ${count}      — TK count
-//   ${rank}      / ${title}      — rank title in the player's language
+// Squirrel has no JS template literals / expressions inside ${...}.
+// Placeholders are plain substitutions (see TkFill):
+//   ${nickname}  / ${name}
+//   ${killcount} / ${count}
+//   ${rank}      / ${title}   — may be "" when rank is hidden
 //
-// Simultaneous TKs: stack_slots lines with different y + channel
-// so messages do not overwrite each other.
+// rank_on_every_kill:
+//   true  — ${rank} filled on every kill
+//   false — ${rank} empty on normal kills; rank-up uses template_rankup
+//
+// Example kill line with optional rank:
+//   "${nickname}: ${killcount}${rank}"
+// and set rank_prefix = " — " so rank becomes " — Title" or "".
 
 ::g_TkAnnounce <- {
-    template = {
-        ru = "${nickname}: ${killcount} — ${rank}",
-        en = "${nickname}: ${killcount} — ${rank}",
+    // false = ранг только при новом звании; true = ранг в каждой строке килла
+    rank_on_every_kill = false,
+
+    // Prefixed to rank text when rank is shown on a kill line (ignored if rank empty)
+    rank_prefix = " — ",
+
+    // Один шаблон на обычный килл. ${rank} будет либо " — Звание", либо "".
+    template_kill = {
+        ru = "${nickname}: ${killcount}${rank}",
+        en = "${nickname}: ${killcount}${rank}",
+    },
+
+    // Отдельная строка при повышении ранга
+    template_rankup = {
+        ru = "${nickname} → ${rank}",
+        en = "${nickname} → ${rank}",
     },
 
     // game_text look (y: 0 = top, 1 = bottom, -1 = center)
     color    = "255 40 40 255",
     color2   = "255 40 40 255",
     x        = "-1",
-    // Base line for the first stack slot (then + y_step each)
     y        = "0.32",
     y_step   = "0.055",
     holdtime = "4",
@@ -27,7 +45,6 @@
     // game_text effect: 0 = fade, 1 = credits (typewriter), 2 = scan-out
     effect   = "0",
 
-    // How many simultaneous red lines; channels = channel_base .. channel_base+slots-1
     stack_slots  = 4,
     channel_base = 1,
 }

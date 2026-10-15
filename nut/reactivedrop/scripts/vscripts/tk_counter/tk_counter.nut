@@ -23,7 +23,6 @@ const TK_TEXT_Y       = "0.38"
 const TK_TEXT_COLOR   = "255 40 40 255"
 const TK_TEXT_HOLD    = "4"
 const TK_TIP_DELAY    = 3.0
-const TK_MAP_TIP_DELAY = 2.5
 const TK_CLASS_MARINE = "asw_marine"
 const TK_SEP          = "|"
 const TK_EM_DASH      = " — "
@@ -59,6 +58,7 @@ const TK_MSG_NOTIFY_OFF      = "notify_off"
 const TK_MSG_RESET_USAGE     = "reset_usage"
 const TK_MSG_RESET_BAD_ID    = "reset_bad_id"
 const TK_MSG_RESET_DONE      = "reset_done"
+const TK_MSG_RESET_ALL_DONE  = "reset_all_done"
 const TK_MSG_HELP_ME         = "help_me"
 const TK_MSG_HELP_TOP        = "help_top"
 const TK_MSG_HELP_NEXT       = "help_next"
@@ -134,16 +134,20 @@ const TK_MSG_SCORE_LINE      = "score_line"
         en = "Teamkill display disabled",
     },
     reset_usage = {
-        ru = "Использование: !tkc_reset STEAM_1:0:12345",
-        en = "Usage: !tkc_reset STEAM_1:0:12345",
+        ru = "Использование: !tkc_reset STEAM_1:0:12345 | !tkc_reset all",
+        en = "Usage: !tkc_reset STEAM_1:0:12345 | !tkc_reset all",
     },
     reset_bad_id = {
-        ru = "Нужен SteamID вида STEAM_1:0:12345",
-        en = "Need SteamID like STEAM_1:0:12345",
+        ru = "Нужен SteamID вида STEAM_1:0:12345 или all",
+        en = "Need SteamID like STEAM_1:0:12345 or all",
     },
     reset_done = {
         ru = "Reset {name} [{steam}]: {before} → 0",
         en = "Reset {name} [{steam}]: {before} → 0",
+    },
+    reset_all_done = {
+        ru = "Сброшена вся статистика ({count} записей)",
+        en = "All stats reset ({count} records)",
     },
     help_me = {
         ru = "!tkc — твой счёт",
@@ -182,8 +186,8 @@ const TK_MSG_SCORE_LINE      = "score_line"
         en = "!tkc_off — hide teamkill announcements",
     },
     help_reset = {
-        ru = "!tkc_reset STEAM_1:0:12345 — сброс (админ)",
-        en = "!tkc_reset STEAM_1:0:12345 — reset (admin)",
+        ru = "!tkc_reset STEAM_…|all — сброс игрока / всей статистики (админ)",
+        en = "!tkc_reset STEAM_…|all — reset player / all stats (admin)",
     },
     help_help = {
         ru = "!tkc_help — справка",
@@ -205,8 +209,11 @@ const TK_MSG_SCORE_LINE      = "score_line"
 
 ::g_TkCache <- {}
 PendingTips <- []
-bMapTipDone <- false
-fMapTipAt <- Time() + TK_MAP_TIP_DELAY
+// Steam keys already tipped this map (player_activate can fire more than once)
+TippedPlayers <- {}
+// Pre-baked announce lines (correct killcount), flushed next thinks — avoids
+// same-frame game_text clobbering when several marines die at once.
+PendingAnnounces <- []
 
 // ── i18n ─────────────────────────────────────────────────────────────────────
 
@@ -297,40 +304,94 @@ TkNextRank <- function( count ) {
     return ::g_TkRanks[idx + 1]
 }
 
-TkFormatLine <- function( name, count, lang ) {
-    lang = TkNormalizeLang( lang )
-    local rank = TkRankTitle( count, lang )
-    local vars = {
-        nickname = name,
-        name = name,
-        killcount = count,
-        count = count,
-        rank = rank,
-        title = rank,
-    }
-
-    local tpl = null
-    if ( ( "g_TkAnnounce" in getroottable() ) && ( "template" in ::g_TkAnnounce ) ) {
-        local t = ::g_TkAnnounce.template
-        if ( lang in t )
-            tpl = t[lang]
-        else if ( TK_DEFAULT_LANG in t )
-            tpl = t[TK_DEFAULT_LANG]
-    }
-    if ( tpl == null || tpl == "" )
-        return TkTF( TK_MSG_SCORE_LINE, lang, { name = name, count = count, title = rank } )
-    return TkFill( tpl, vars )
-}
-
 TkAnnounceCfg <- function( key, fallback ) {
     if ( !( "g_TkAnnounce" in getroottable() ) )
         return fallback
     if ( !( key in ::g_TkAnnounce ) )
         return fallback
     local v = ::g_TkAnnounce[key]
+    if ( v == null )
+        return fallback
+    return v
+}
+
+TkAnnounceCfgBool <- function( key, fallback ) {
+    local v = TkAnnounceCfg( key, null )
+    if ( v == null )
+        return fallback
+    if ( typeof v == "bool" )
+        return v
+    local s = v.tostring().tolower()
+    if ( s == "0" || s == "false" || s == "no" || s == "off" )
+        return false
+    if ( s == "1" || s == "true" || s == "yes" || s == "on" )
+        return true
+    return fallback
+}
+
+TkAnnounceCfgStr <- function( key, fallback ) {
+    local v = TkAnnounceCfg( key, null )
     if ( v == null || v == "" )
         return fallback
     return v.tostring()
+}
+
+TkPickTemplate <- function( tableKey, lang ) {
+    lang = TkNormalizeLang( lang )
+    if ( !( "g_TkAnnounce" in getroottable() ) )
+        return null
+    if ( !( tableKey in ::g_TkAnnounce ) )
+        return null
+    local t = ::g_TkAnnounce[tableKey]
+    if ( t == null )
+        return null
+    if ( typeof t == "string" )
+        return t
+    if ( lang in t )
+        return t[lang]
+    if ( TK_DEFAULT_LANG in t )
+        return t[TK_DEFAULT_LANG]
+    return null
+}
+
+// kind: "status" (commands, always with rank) | "kill" | "rankup"
+TkFormatLine <- function( name, count, lang, kind = "status" ) {
+    lang = TkNormalizeLang( lang )
+    local rankTitle = TkRankTitle( count, lang )
+    local rankText = rankTitle
+
+    if ( kind == "kill" ) {
+        if ( TkAnnounceCfgBool( "rank_on_every_kill", false ) )
+            rankText = TkAnnounceCfgStr( "rank_prefix", " — " ) + rankTitle
+        else
+            rankText = ""
+    } else if ( kind == "rankup" ) {
+        rankText = rankTitle
+    } else {
+        // !tkc / top / next — всегда показываем ранг с префиксом
+        rankText = TkAnnounceCfgStr( "rank_prefix", " — " ) + rankTitle
+    }
+
+    local vars = {
+        nickname = name,
+        name = name,
+        killcount = count,
+        count = count,
+        rank = rankText,
+        title = rankText,
+    }
+
+    local tplKey = "template_kill"
+    if ( kind == "rankup" )
+        tplKey = "template_rankup"
+
+    local tpl = TkPickTemplate( tplKey, lang )
+    if ( tpl == null || tpl == "" ) {
+        if ( kind == "rankup" )
+            return name + " → " + rankTitle
+        return TkTF( TK_MSG_SCORE_LINE, lang, { name = name, count = count, title = rankTitle } )
+    }
+    return TkFill( tpl, vars )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -604,7 +665,7 @@ TkSetNotify <- function( hPlayer, enabled ) {
 TkAnnounceStackSlots <- function() {
     local n = 4
     try {
-        n = TkAnnounceCfg( "stack_slots", "4" ).tointeger()
+        n = TkAnnounceCfgStr( "stack_slots", "4" ).tointeger()
     } catch ( e ) {
         n = 4
     }
@@ -618,7 +679,7 @@ TkAnnounceStackSlots <- function() {
 TkAnnounceChannelBase <- function() {
     local n = 1
     try {
-        n = TkAnnounceCfg( "channel_base", "1" ).tointeger()
+        n = TkAnnounceCfgStr( "channel_base", "1" ).tointeger()
     } catch ( e ) {
         n = 1
     }
@@ -628,7 +689,7 @@ TkAnnounceChannelBase <- function() {
 }
 
 TkAnnounceYStep <- function() {
-    local s = TkAnnounceCfg( "y_step", "0.055" )
+    local s = TkAnnounceCfgStr( "y_step", "0.055" )
     try {
         return s.tofloat()
     } catch ( e ) {
@@ -637,12 +698,10 @@ TkAnnounceYStep <- function() {
 }
 
 TkAnnounceHoldSeconds <- function() {
-    local s = TkAnnounceCfg( "holdtime", TK_TEXT_HOLD )
-    local fade = TkAnnounceCfg( "fadeout", "0.35" )
     local hold = 4.0
     local fo = 0.35
-    try { hold = s.tofloat() } catch ( e ) { hold = 4.0 }
-    try { fo = fade.tofloat() } catch ( e ) { fo = 0.35 }
+    try { hold = TkAnnounceCfgStr( "holdtime", TK_TEXT_HOLD ).tofloat() } catch ( e ) { hold = 4.0 }
+    try { fo = TkAnnounceCfgStr( "fadeout", "0.35" ).tofloat() } catch ( e ) { fo = 0.35 }
     return hold + fo + 0.05
 }
 
@@ -670,9 +729,8 @@ TkAllocAnnounceSlot <- function() {
 }
 
 TkAnnounceSlotY <- function( slot ) {
-    local baseStr = TkAnnounceCfg( "y", TK_TEXT_Y )
     local base = 0.32
-    try { base = baseStr.tofloat() } catch ( e ) { base = 0.32 }
+    try { base = TkAnnounceCfgStr( "y", TK_TEXT_Y ).tofloat() } catch ( e ) { base = 0.32 }
     return ( base + ( slot * TkAnnounceYStep() ) ).tostring()
 }
 
@@ -680,9 +738,18 @@ TkAnnounceSlotChannel <- function( slot ) {
     return ( TkAnnounceChannelBase() + slot ).tostring()
 }
 
+// Queue announce with text already formatted (call right after TkAdd).
+TkQueueAnnounce <- function( centerMsg, chatMsg ) {
+    PendingAnnounces.append( {
+        center = centerMsg,
+        chat = chatMsg,
+    } )
+}
+
 // Broadcast center+chat only to players who left notify on.
 // One stack slot per announcement (shared by all viewers).
-TkBroadcastAnnounce <- function( centerMsg, chatMsg ) {
+// displayDelay: stagger Display so same-frame HUD writes do not clobber text.
+TkBroadcastAnnounce <- function( centerMsg, chatMsg, displayDelay = 0.0 ) {
     local slot = null
     if ( centerMsg != null && centerMsg != "" )
         slot = TkAllocAnnounceSlot()
@@ -691,12 +758,24 @@ TkBroadcastAnnounce <- function( centerMsg, chatMsg ) {
     while ( p != null ) {
         if ( p.IsValid() && TkIsNotifyOn( p ) ) {
             if ( centerMsg != null && centerMsg != "" )
-                TkShowCenter( centerMsg, p, slot )
+                TkShowCenter( centerMsg, p, slot, displayDelay )
             if ( chatMsg != null && chatMsg != "" )
                 ClientPrint( p, TK_HUD_TALK, chatMsg )
         }
         p = Entities.FindByClassname( p, "player" )
     }
+}
+
+// Flush one queued announce per think tick (stable killcounts + stack).
+TkFlushOneAnnounce <- function() {
+    if ( PendingAnnounces.len() == 0 )
+        return
+    local a = PendingAnnounces[0]
+    local rest = []
+    for ( local i = 1; i < PendingAnnounces.len(); i++ )
+        rest.append( PendingAnnounces[i] )
+    PendingAnnounces = rest
+    TkBroadcastAnnounce( a.center, a.chat, 0.0 )
 }
 
 TkLangOf <- function( hPlayer ) {
@@ -768,6 +847,20 @@ TkResetBySteamString <- function( steamStr ) {
     return { id = id, name = oldName, before = oldCount, steam = steam }
 }
 
+// Reset TK count for every known player (keeps name/lang/notify).
+TkResetAll <- function() {
+    local ids = TkLoadIndex()
+    local n = 0
+    foreach ( id in ids ) {
+        local rec = TkLoad( id )
+        rec.count = 0
+        ::g_TkCache[id] <- rec
+        TkSave( id )
+        n += 1
+    }
+    return n
+}
+
 TkCollectAll <- function() {
     local list = []
     foreach ( id in TkLoadIndex() ) {
@@ -798,7 +891,7 @@ TkCollectAll <- function() {
 
 // ── UI ───────────────────────────────────────────────────────────────────────
 
-TkShowCenter <- function( message, hPlayer = null, slot = null ) {
+TkShowCenter <- function( message, hPlayer = null, slot = null, displayDelay = 0.0 ) {
     if ( message == null || message == "" )
         return
 
@@ -809,56 +902,59 @@ TkShowCenter <- function( message, hPlayer = null, slot = null ) {
     if ( t == null )
         return
 
-    local hold = TkAnnounceCfg( "holdtime", TK_TEXT_HOLD )
+    local hold = TkAnnounceCfgStr( "holdtime", TK_TEXT_HOLD )
     local killDelay = 5.0
     try {
-        killDelay = hold.tofloat() + TkAnnounceCfg( "fadeout", "0.35" ).tofloat() + 0.5
+        killDelay = hold.tofloat() + TkAnnounceCfgStr( "fadeout", "0.35" ).tofloat() + 0.5 + displayDelay
     } catch ( e ) {
-        killDelay = 5.0
+        killDelay = 5.0 + displayDelay
     }
 
-    t.__KeyValueFromString( "message", message.tostring() )
-    t.__KeyValueFromString( "x", TkAnnounceCfg( "x", "-1" ) )
+    local msgStr = message.tostring()
+    local color = TkAnnounceCfgStr( "color", TK_TEXT_COLOR )
+    t.__KeyValueFromString( "message", msgStr )
+    t.__KeyValueFromString( "x", TkAnnounceCfgStr( "x", "-1" ) )
     t.__KeyValueFromString( "y", TkAnnounceSlotY( slot ) )
-    t.__KeyValueFromString( "color", TkAnnounceCfg( "color", TK_TEXT_COLOR ) )
-    t.__KeyValueFromString( "color2", TkAnnounceCfg( "color2", TkAnnounceCfg( "color", TK_TEXT_COLOR ) ) )
+    t.__KeyValueFromString( "color", color )
+    t.__KeyValueFromString( "color2", TkAnnounceCfgStr( "color2", color ) )
     t.__KeyValueFromString( "holdtime", hold )
-    t.__KeyValueFromString( "fadein", TkAnnounceCfg( "fadein", "0.15" ) )
-    t.__KeyValueFromString( "fadeout", TkAnnounceCfg( "fadeout", "0.35" ) )
+    t.__KeyValueFromString( "fadein", TkAnnounceCfgStr( "fadein", "0.15" ) )
+    t.__KeyValueFromString( "fadeout", TkAnnounceCfgStr( "fadeout", "0.35" ) )
     t.__KeyValueFromString( "channel", TkAnnounceSlotChannel( slot ) )
-    t.__KeyValueFromString( "effect", TkAnnounceCfg( "effect", "0" ) )
+    t.__KeyValueFromString( "effect", TkAnnounceCfgStr( "effect", "0" ) )
 
     if ( hPlayer != null && hPlayer.IsValid() ) {
         t.__KeyValueFromString( "spawnflags", "0" )
         t.SetOwner( hPlayer )
         t.Spawn()
         t.Activate()
-        EntFireByHandle( t, "Display", "", 0.0, hPlayer, hPlayer )
+        EntFireByHandle( t, "Display", "", displayDelay, hPlayer, hPlayer )
     } else {
         t.__KeyValueFromString( "spawnflags", "1" )
         t.Spawn()
         t.Activate()
-        EntFireByHandle( t, "Display", "", 0.0, null, null )
+        EntFireByHandle( t, "Display", "", displayDelay, null, null )
     }
 
     EntFireByHandle( t, "Kill", "", killDelay, null, null )
 }
 
 TkAnnounceKill <- function( hKiller, after, lang ) {
-    local msg = TkFormatLine( hKiller.GetPlayerName(), after, lang )
-    TkBroadcastAnnounce( msg, TK_TAG + msg )
+    // Bake string NOW — before any later kill in the same frame changes totals
+    local msg = TkFormatLine( hKiller.GetPlayerName(), after, lang, "kill" )
+    TkQueueAnnounce( msg, TK_TAG + msg )
 }
 
 TkAnnounceRankUp <- function( hKiller, after, lang ) {
     local name = hKiller.GetPlayerName()
     local title = TkRankTitle( after, lang )
-    local msg = TkFormatLine( name, after, lang )
+    local center = TkFormatLine( name, after, lang, "rankup" )
     local chat = TK_TAG + TkTF( TK_MSG_RANK_UP, lang, {
         name = name,
         title = title,
         count = after,
     } )
-    TkBroadcastAnnounce( msg, chat )
+    TkQueueAnnounce( center, chat )
 }
 
 TkSendHelpTip <- function( hPlayer ) {
@@ -866,26 +962,20 @@ TkSendHelpTip <- function( hPlayer ) {
         return
     if ( !TkIsNotifyOn( hPlayer ) )
         return
-    TkChat( hPlayer, TkLangOf( hPlayer ), TK_MSG_HELP_TIP )
-}
-
-TkMapStartTip <- function() {
-    local p = Entities.FindByClassname( null, "player" )
-    while ( p != null ) {
-        if ( p.IsValid() && TkIsNotifyOn( p ) )
-            TkChat( p, TkLangOf( p ), TK_MSG_HELP_TIP )
-        p = Entities.FindByClassname( p, "player" )
+    local id = TkKey( hPlayer )
+    if ( id != null ) {
+        if ( id in TippedPlayers )
+            return
+        TippedPlayers[id] <- true
     }
+    TkChat( hPlayer, TkLangOf( hPlayer ), TK_MSG_HELP_TIP )
 }
 
 TkTipThink <- function() {
     local now = Time()
 
-    if ( !bMapTipDone && now >= fMapTipAt ) {
-        bMapTipDone = true
-        if ( Entities.FindByClassname( null, "player" ) != null )
-            TkMapStartTip()
-    }
+    // One HUD announce per tick so multi-kills keep distinct baked counts
+    TkFlushOneAnnounce()
 
     if ( PendingTips.len() > 0 ) {
         local remaining = []
@@ -900,6 +990,8 @@ TkTipThink <- function() {
         PendingTips = remaining
     }
 
+    if ( PendingAnnounces.len() > 0 )
+        return 0.08
     return 0.5
 }
 
@@ -969,6 +1061,14 @@ _OnPlayerActivate <- function( hPlayer ) {
     if ( hPlayer == null || !hPlayer.IsValid() )
         return
     TkTouchPlayer( hPlayer )
+    local id = TkKey( hPlayer )
+    if ( id != null && ( id in TippedPlayers ) )
+        return
+    // Avoid duplicate queue entries if activate fires twice before tip shows
+    foreach ( entry in PendingTips ) {
+        if ( entry.hPlayer == hPlayer )
+            return
+    }
     PendingTips.append( { hPlayer = hPlayer, showAt = Time() + TK_TIP_DELAY } )
 }
 
@@ -1019,7 +1119,6 @@ _OnPlayerSay <- function( params ) {
         }
         local msg = TkFormatLine( rec.name, rec.count, rec.lang )
         ClientPrint( hPlayer, TK_HUD_TALK, TK_TAG + msg + " [" + hPlayer.GetNetworkIDString() + "]" )
-        TkShowCenter( msg, hPlayer )
         return
     }
 
@@ -1052,7 +1151,6 @@ _OnPlayerSay <- function( params ) {
         if ( next == null ) {
             local line = TkFormatLine( rec.name, rec.count, rec.lang )
             TkChat( hPlayer, rec.lang, TK_MSG_MAX_RANK, { line = line } )
-            TkShowCenter( line, hPlayer )
             return
         }
         local need = next.min - rec.count
@@ -1062,7 +1160,6 @@ _OnPlayerSay <- function( params ) {
             need = need,
             count = rec.count,
         } )
-        TkShowCenter( rec.name + ": " + rec.count + " → " + nextTitle + " (" + need + ")", hPlayer )
         return
     }
 
@@ -1093,7 +1190,6 @@ _OnPlayerSay <- function( params ) {
         local demo = TkFormatLine( rec.name, rec.count, set )
         TkChat( hPlayer, set, TK_MSG_LANG_SET, { lang = set } )
         ClientPrint( hPlayer, TK_HUD_TALK, TK_TAG + demo )
-        TkShowCenter( demo, hPlayer )
         return
     }
 
@@ -1124,6 +1220,12 @@ _OnPlayerSay <- function( params ) {
             TkChat( hPlayer, lang, TK_MSG_RESET_USAGE )
             return
         }
+        local argLower = arg.tolower()
+        if ( argLower == "all" ) {
+            local n = TkResetAll()
+            TkChat( hPlayer, lang, TK_MSG_RESET_ALL_DONE, { count = n } )
+            return
+        }
         local result = TkResetBySteamString( arg )
         if ( result == null ) {
             TkChat( hPlayer, lang, TK_MSG_RESET_BAD_ID )
@@ -1134,7 +1236,6 @@ _OnPlayerSay <- function( params ) {
             steam = result.steam,
             before = result.before,
         } )
-        TkShowCenter( result.name + ": 0", hPlayer )
         return
     }
 
