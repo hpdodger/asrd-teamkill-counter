@@ -4,79 +4,114 @@
 
 **Версия:** `tk_counter/version.nut` (сейчас **1.2.5**), также в баннере `mapspawn` и в `!tkc_help`. История — в [`CHANGELOG.md`](CHANGELOG.md).
 
-Работает **при любом выбранном челлендже** через `mapspawn.nut` (нужен `sv_mapspawn_nut_exec 1`). Клиентские файлы не требуются: объявления идут через `ClientPrint`.
+Клиентские файлы не требуются: объявления идут через `ClientPrint` / `game_text`.
 
 ## Возможности
 
-- Учёт убийств морпех → морпех (жертва-бот тоже считается)
-- Ключ игрока: SteamID вида `STEAM_1:0:…`; в записи также хранится ник
-- Сохранение между сессиями в `save/vscripts/tk_counter/`
-- Ранги от 0 до 1000+ — отдельно `ru` и `en` (по умолчанию русский)
-- Язык и показ объявлений хранятся на игрока; `!tkc_lang ru|en`, `!tkc_on` / `!tkc_off`
-- Формат объявления: `ник: 2 — Случайный выстрел`
-- Текст чуть выше центра экрана (`y = 0.38`)
-- Подсказка в чат: `team kill counter help - !tkc_help` (через ~3 с после захода / при смене карты)
-- Команды с префиксом `!tkc`
-- Сброс по `STEAM_X:Y:Z` только для ID из `::g_TkAdmins`
+- Работа без челленджа или с любым челленджем (сценарий mapspawn)
+- Либо только пока выбран челлендж «TK Counter» (сценарий challenge)
+- Сохранение между игровыми сессиями в `save/vscripts/tk_counter/`
+- Настраиваемая система ачивментов/рангов (от 0 до 1001 убийств по умолчанию)
+- Настраиваемый перечень админов
+- Система i18n (2 языка встроено — RU/EN)
+- Настраиваемый формат вывода сообщения (цвет, позиция, шаблон; по умолчанию `${nickname}: ${killcount} — ${rank}`)
+- Сброс статистики админом
+- Возможность каждому игроку на сервере отключить для себя индивидуально показ уведмлений о тимкилле
 
-## Установка на dedicated server
+## Какой сценарий выбрать
 
-Скопируй содержимое `reactivedrop/` в папку игры сервера:
+| Сценарий | Когда использовать | Работает при смене челленджа? |
+|----------|--------------------|-------------------------------|
+| **A. Always-on (mapspawn)** | Нужен счётчик постоянно на сервере | Да |
+| **B. Только челлендж** | Включать вручную из лобби, как обычный challenge | Нет — только пока выбран TK Counter |
+
+Рекомендуется **A**, если челленджи на сервере часто меняют.
+
+Общий шаг для обоих сценариев: файлы лежат в репозитории под `nut/reactivedrop/`. Их нужно положить в каталог игры сервера:
 
 ```
 ...\Alien Swarm Reactive Drop\reactivedrop\
 ```
 
-Попадут:
+---
 
-| Файл | Назначение |
-|------|------------|
-| `scripts/vscripts/tk_counter/tk_counter.nut` | логика |
-| `scripts/vscripts/tk_counter/ranks.nut` | пороги и названия рангов |
-| `scripts/vscripts/tk_counter/admins.nut` | whitelist для `!tkc_reset` |
-| `scripts/vscripts/tk_counter/announce.nut` | шаблон красного текста + цвет/позиция |
-| `scripts/vscripts/mapspawn.nut` | загрузчик на каждой карте |
-| `scripts/vscripts/mapspawn.merge-snippet.nut` | фрагмент для слияния с уже существующим mapspawn |
-| `cfg/autoexec.cfg` | `sv_mapspawn_nut_exec 1` |
-| `resource/challenges/tk_counter.txt` | опциональная запись челленджа |
-| `scripts/vscripts/challenge_tk_counter.nut` | опциональный вход через челлендж |
+## Сценарий A — всегда включено (mapspawn)
 
-Если `cfg/autoexec.cfg` уже есть — допиши в конец:
+Счётчик стартует на каждой карте (включая лобби), независимо от выбранного челленджа.
+
+### 1. Скопируй ядро
+
+Из `nut/reactivedrop/` в `reactivedrop/` сервера:
+
+```
+scripts/vscripts/tk_counter/     — вся папка (tk_counter.nut, ranks, admins, announce, version)
+```
+
+### 2. Включи mapspawn
+
+В `reactivedrop/cfg/autoexec.cfg` (создай файл, если нет) добавь:
 
 ```
 sv_mapspawn_nut_exec 1
 ```
 
-### Если mapspawn.nut уже есть
+### 3. Поставь загрузчик mapspawn
 
-1. **Не перезаписывай** существующий `mapspawn.nut`.
-2. Скопируй только `tk_counter.nut`.
-3. В конец текущего `mapspawn.nut` вставь содержимое `mapspawn.merge-snippet.nut`.
+**Если на сервере ещё нет** `scripts/vscripts/mapspawn.nut`:
 
-Сниппет цепляет предыдущие обработчики `player_say` / `player_activate` / `entity_killed`, если они уже были.
+- скопируй `scripts/vscripts/mapspawn.nut` из репозитория как есть.
 
-## Команды
+**Если `mapspawn.nut` уже есть** (другой always-on мод):
 
-Префикс: `!tkc` (чтобы не пересекаться с другими модами).
+1. **Не перезаписывай** существующий файл.
+2. В **конец** текущего `mapspawn.nut` вставь содержимое `scripts/vscripts/mapspawn.merge-snippet.nut`.
 
-| Команда | Кто | Что делает |
-|---------|-----|------------|
-| `!tkc` | любой | свой счёт и ранг |
-| `!tkc_top` | любой | топ‑10 только себе в чат |
-| `!tkc_next` | любой | следующий ранг и сколько ТК осталось |
-| `!tkc_ranks` | любой | список порогов и рангов (себе) |
-| `!tkc_lang` | любой | показать язык |
-| `!tkc_lang ru` / `!tkc_lang en` | любой | сменить язык рангов |
-| `!tkc_on` | любой | включить объявления тимкиллов (чат + центр) |
-| `!tkc_off` | любой | выключить объявления тимкиллов |
-| `!tkc_reset STEAM_1:0:12345` | только whitelist | сброс счёта игрока в 0 |
-| `!tkc_help` | любой | справка |
+Сниппет подключает TK Counter и цепляет уже существующие обработчики `player_say` / `player_activate` / `entity_killed`.
 
-`!tkc_off` скрывает только авто-объявления (тимкилл / ранг / tip). Команды `!tkc`, `!tkc_top`, `!tkc_next` по запросу работают как раньше. Счётчик продолжает копиться.
+### 4. Перезапуск
 
-### Права на сброс
+Смени карту или перезапусти сервер. В консоли должен появиться баннер `TK Counter  v…`.
 
-VScript **не видит** админов SourceMod. Список доверенных ID задаётся прямо в скрипте в **привычном виде** (как в `status` и `admins_simple.ini`):
+Челлендж из меню для этого сценария **не нужен**. Файлы `resource/challenges/tk_counter.txt` и `challenge_tk_counter.nut` можно не копировать.
+
+---
+
+## Сценарий B — только как челлендж
+
+Счётчик работает, только пока в лобби выбран challenge **TK Counter**. Сменили челлендж — модуль останавливается.
+
+### 1. Скопируй ядро и челлендж
+
+```
+scripts/vscripts/tk_counter/              — вся папка
+scripts/vscripts/challenge_tk_counter.nut
+resource/challenges/tk_counter.txt
+```
+
+### 2. mapspawn и autoexec
+
+**Не обязательны.** `sv_mapspawn_nut_exec` и `mapspawn.nut` для этого сценария не нужны.
+
+### 3. Включение в игре
+
+В лобби выбери челлендж **TK Counter (optional)** и начни миссию.
+
+---
+
+## После установки — настройка
+
+Править можно без лезания в ядро:
+
+| Файл | Что настраивать |
+|------|-----------------|
+| `scripts/vscripts/tk_counter/ranks.nut` | пороги и названия рангов |
+| `scripts/vscripts/tk_counter/admins.nut` | whitelist для `!tkc_reset` |
+| `scripts/vscripts/tk_counter/announce.nut` | шаблон красного текста, цвет, позиция, стек |
+| `scripts/vscripts/tk_counter/version.nut` | номер версии (баннер + `!tkc_help`) |
+
+### Админы для сброса
+
+VScript **не видит** админов SourceMod. SteamID в привычном виде (как в `status` / `admins_simple.ini`):
 
 ```squirrel
 ::g_TkAdmins <- [
@@ -84,61 +119,80 @@ VScript **не видит** админов SourceMod. Список довере�
 ]
 ```
 
-Узнать ID: команда `status` в консоли сервера, либо `!tkc` (ник и SteamID печатаются в чат).
+Узнать ID: `status` в консоли сервера или `!tkc` (ник и SteamID в чат).  
+Пример: `!tkc_reset STEAM_1:0:12345678`  
+Также принимается `[U:1:…]`. `STEAM_0` и `STEAM_1` с теми же цифрами — один аккаунт.
 
-Пример сброса:
+### Шаблон объявления
 
+В `announce.nut`:
+
+```squirrel
+template = {
+    ru = "${nickname}: ${killcount} — ${rank}",
+    en = "${nickname}: ${killcount} — ${rank}",
+}
 ```
-!tkc_reset STEAM_1:0:12345678
-```
 
-Также принимается форма `[U:1:24791356]`. `STEAM_0` и `STEAM_1` считаются одним и тем же аккаунтом.
+Плейсхолдеры: `${nickname}`, `${killcount}`, `${rank}` (синонимы: `${name}`, `${count}`, `${title}`). Там же `color`, `y`, `holdtime`, `stack_slots`.
+
+## Команды
+
+Префикс: `!tkc`.
+
+| Команда | Кто | Что делает |
+|---------|-----|------------|
+| `!tkc` | любой | свой счёт и ранг |
+| `!tkc_top` | любой | топ‑10 |
+| `!tkc_next` | любой | следующий ранг |
+| `!tkc_ranks` | любой | список порогов и рангов |
+| `!tkc_lang` | любой | показать язык |
+| `!tkc_lang ru` / `!tkc_lang en` | любой | сменить язык рангов |
+| `!tkc_on` | любой | включить объявления тимкиллов |
+| `!tkc_off` | любой | выключить объявления тимкиллов |
+| `!tkc_reset STEAM_1:0:12345` | whitelist | сброс счёта игрока в 0 |
+| `!tkc_help` | любой | справка (версия + автор) |
+
+`!tkc_off` скрывает только авто-объявления. Команды по запросу и подсчёт ТК продолжают работать.
+
+Ответы на команды видны **только** запросившему. Авто-объявления — игрокам с `!tkc_on`.
 
 ## Файлы данных
 
-Путь на сервере:
+На сервере скрипт пишет статистику сюда:
 
 ```
 reactivedrop/save/vscripts/tk_counter/
-  index.txt        — список account id (число из SteamID)
-  <accountId>.txt  — одна строка: count|nickname
+  index.txt        — список account id всех учтённых игроков
+  <accountId>.txt  — данные одного игрока
 ```
 
-Снаружи везде используется привычный `STEAM_1:0:…`; в имени файла — числовой account id (на Windows в имени файла нельзя `:`)
+В каждом `<accountId>.txt` одна строка из четырёх полей через `|`:
 
-Пример записи игрока (`count|name|lang|notify`):
+```
+count|name|lang|notify
+```
+
+Пример:
 
 ```
 42|Vasya|ru|1
 ```
 
-`notify`: `1` = показывать объявления, `0` = скрыть (`!tkc_off`).
+| Поле | Пример | Смысл |
+|------|--------|--------|
+| `count` | `42` | число тимкиллов |
+| `name` | `Vasya` | последний известный ник |
+| `lang` | `ru` / `en` | язык рангов (`!tkc_lang`) |
+| `notify` | `1` / `0` | показывать ли авто-объявления о тимкиллах: `1` — да (`!tkc_on`), `0` — нет (`!tkc_off`) |
 
-Бэкапь папку `save/vscripts/tk_counter/` вместе с сервером.
-
-## Ранги, админы, уведомление
-
-- Пороги/названия: `tk_counter/ranks.nut`
-- Whitelist `!tkc_reset`: `tk_counter/admins.nut`
-- Красный текст: `tk_counter/announce.nut`
-
-Шаблон, например:
-
-```squirrel
-template = {
-    ru = "${nickname} - ${killcount} - ${rank}",
-    en = "${nickname} - ${killcount} - ${rank}",
-}
-```
-
-Плейсхолдеры: `${nickname}`, `${killcount}`, `${rank}` (синонимы: `${name}`, `${count}`, `${title}`). Там же `color`, `y`, `holdtime`.
+Обычно файл трогать не нужно: его обновляет сам счётчик. Бэкапь папку `save/vscripts/tk_counter/` вместе с сервером.
 
 ## Важно
 
-- Это **не** замена выбранного челленджа: логика живёт в `mapspawn`, игровой челлендж в лобби может быть любым.
-- Самоубийство не считается; жук → морпех не считается; бот → бот не даёт очков игроку.
-- Челлендж `tk_counter` в меню — запасной путь. Для «всегда включено» используй mapspawn.
-- `FileToString` ограничен ~16 КБ на файл; поэтому на игрока отдельный файл + индекс.
+- Самоубийство не считается; жук → морпех не считается; бот-жертва считается, если убийца — игрок.
+- `FileToString` ограничен ~16 КБ на файл — поэтому файл на игрока + индекс.
+- После обновления с 1.1.x удали старый одиночный `scripts/vscripts/tk_counter.nut`, если он ещё лежит в корне `vscripts`.
 
 ## Структура репозитория
 
@@ -150,14 +204,13 @@ asrd_tk_counter/
     cfg/autoexec.cfg
     resource/challenges/tk_counter.txt
     scripts/vscripts/
-      mapspawn.nut
-      mapspawn.merge-snippet.nut
-      challenge_tk_counter.nut
+      mapspawn.nut                 — сценарий A
+      mapspawn.merge-snippet.nut   — сценарий A, если mapspawn уже был
+      challenge_tk_counter.nut     — сценарий B
       tk_counter/
-        tk_counter.nut   — ядро
-        ranks.nut        — ранги
-        admins.nut       — админы
-        announce.nut     — шаблон уведомления
+        tk_counter.nut
+        ranks.nut
+        admins.nut
+        announce.nut
+        version.nut
 ```
-
-На живом сервере удали старый одиночный `scripts/vscripts/tk_counter.nut`, если он остался после обновления с 1.1.x.
